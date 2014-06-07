@@ -1,3 +1,11 @@
+<<<<<<< HEAD
+Data-mining
+===========
+
+Top-k association rule by apriori with DHP
+
+
+=======
 # windows-chewing-tsf
 
 Implement chewing in Windows via Text Services Framework:
@@ -80,3 +88,4 @@ All parts are licensed under GNU LGPL v2.1 license.
 
 # Bug Report
 Please report any issue to [here](https://github.com/chewing/windows-chewing-tsf/issues).
+>>>>>>> 7ef42ce1a040201d7fc8ee2b992ebd398e2e041f
