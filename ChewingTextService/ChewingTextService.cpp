@@ -26,6 +26,7 @@
 #include "resource.h"
 #include <Shellapi.h>
 #include <sys/stat.h>
+#include <fstream>
 
 using namespace std;
 
@@ -181,7 +182,7 @@ bool TextService::filterKeyDown(Ime::KeyEvent& keyEvent) {
 			// FIXME: we only need Ctrl in composition mode for adding user phrases.
 			// However, if we turn on easy symbol input with Ctrl support later,
 			// we'll need th Ctrl key then.
-			return false;
+			return true;
 		}
 
 		// we always need further processing in full shape mode since all English chars,
@@ -220,6 +221,17 @@ bool TextService::filterKeyDown(Ime::KeyEvent& keyEvent) {
 	return true;
 }
 
+
+bool ctrlSwitch(UINT charCode,bool *ctrlFlag){
+	if(charCode >= '1' && charCode <= '9'){
+		ctrlFlag[charCode - '1'] = 1;
+		return true;
+	}	
+	return false;
+}
+
+
+
 // virtual
 bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) {
 	assert(chewingContext_);
@@ -236,6 +248,30 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 #endif
 
 	UINT charCode = keyEvent.charCode();
+
+	//dirty add varaible	
+	enum Mode {composition_mode, noncomposition_mode};
+	static Mode mode = noncomposition_mode;
+	static bool ctrlFlag[11]={0};	
+	static wstring ctrl[10];
+	static char line[30];
+	static bool readFlag=1;
+	static int  lineNum;
+	
+	//read form ctrl+num string from dictionary.txt
+	if(readFlag){
+		std::fstream fs;
+		fs.open("dictionary.txt",ios::in );
+		if(fs){
+			for(int i=0; fs.getline(line, sizeof(line)); lineNum=i++){
+				ctrl[i] = utf8ToUtf16(line);
+			}
+		}
+		fs.close();
+		readFlag=0;
+	}
+
+	
 	if(charCode && isprint(charCode)) { // printable characters (exclude extended keys?)
 		int oldLangMode = ::chewing_get_ChiEngMode(chewingContext_);
 		bool temporaryEnglishMode = false;
@@ -252,8 +288,16 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 				invertCase = true; // need to convert upper case to lower, and vice versa.
 		}
 
-		if(langMode_ == SYMBOL_MODE) { // English mode
-			::chewing_handle_Default(chewingContext_, charCode);
+		// Ctrl + number (0~9)	
+		if(mode == noncomposition_mode&&keyEvent.isKeyDown(VK_CONTROL) && ctrlSwitch(charCode,ctrlFlag)){ 
+			
+		}
+		else if(langMode_ == SYMBOL_MODE) { // English mode
+			if(keyEvent.isKeyDown(VK_CONTROL) && isdigit(charCode) && ctrlSwitch(charCode,ctrlFlag)){ // Ctrl + number (0~9)
+				
+			}
+			else
+				::chewing_handle_Default(chewingContext_, charCode);
 		}
 		else if(temporaryEnglishMode) { // temporary English mode
 			::chewing_set_ChiEngMode(chewingContext_, SYMBOL_MODE); // change to English mode temporarily
@@ -266,13 +310,15 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 			::chewing_set_ChiEngMode(chewingContext_, oldLangMode); // restore previous mode
 		}
 		else { // Chinese mode
+			mode = composition_mode;
 			if(isalpha(charCode)) // alphabets: A-Z
 				::chewing_handle_Default(chewingContext_, tolower(charCode));
 			else if(keyEvent.keyCode() == VK_SPACE) // space key
 				::chewing_handle_Space(chewingContext_);
-			else if(keyEvent.isKeyDown(VK_CONTROL) && isdigit(charCode)) // Ctrl + number (0~9)
+			else if(keyEvent.isKeyDown(VK_CONTROL) && isdigit(charCode)){ // Ctrl + number (0~9)
+				ctrlSwitch(charCode,ctrlFlag);//Ctrl+num to Word
 				::chewing_handle_CtrlNum(chewingContext_, charCode);
-			else if(keyEvent.isKeyToggled(VK_NUMLOCK) && keyEvent.keyCode() >= VK_NUMPAD0 && keyEvent.keyCode() <= VK_DIVIDE)
+			}else if(keyEvent.isKeyToggled(VK_NUMLOCK) && keyEvent.keyCode() >= VK_NUMPAD0 && keyEvent.keyCode() <= VK_DIVIDE)
 				// numlock is on, handle numpad keys
 				::chewing_handle_Numlock(chewingContext_, charCode);
 			else { // other keys, no special handling is needed
@@ -366,7 +412,7 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 	}
 
 	// has something to commit
-	if(::chewing_commit_Check(chewingContext_)) {
+	if(mode == composition_mode && ::chewing_commit_Check(chewingContext_)) {
 		char* buf = ::chewing_commit_String(chewingContext_);
 		std::wstring wbuf = utf8ToUtf16(buf);
 		::chewing_free(buf);
@@ -400,24 +446,70 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 		compositionBuf.insert(pos, wbuf);
 	}
 
+
+	 //examine ctrl flag to printf
+	if(mode == noncomposition_mode){
+		for(int i=0;i<9;i++){
+			if( ctrlFlag[i]){
+				    //output string ctrl+num when non-composition mode
+					ctrlFlag[i]=0;
+					setCompositionString(session, ctrl[i].c_str(), ctrl[i].length());
+					endComposition(session->context());
+			}
+		}
+	}
+
 	// has something in composition buffer
 	if(!compositionBuf.empty()) {
 		if(!isComposing()) { // start the composition
 			startComposition(session->context());
+
 		}
 		setCompositionString(session, compositionBuf.c_str(), compositionBuf.length());
+		
+		
+		// add string to txt
+		if(mode == composition_mode){
+			for(int i=0;i<9;i++){
+				if(ctrlFlag[i]){
+					ctrl[i].clear();	
+					ctrl[i] = compositionBuf;					
+					
+					//std::locale::global(std::locale(""));						
+					std::locale defaultLocale("");
+					std::wofstream wf;
+					wf.imbue(defaultLocale);
+					wf.open("yyy4.txt",ios::out | ios::trunc);
+					if(wf){
+						for(int k=0; k<9 ;k++){							
+							wf.write(ctrl[k].c_str() , ctrl[k].size() ); 							
+							wf.write(utf8ToUtf16("\r\n").c_str() , 2); 							
+						}												
+					}
+					wf.close();								
+
+					readFlag=1;					
+					ctrlFlag[i]=0;	
+				}			
+			}
+		}
+		
+		
+		
 	}
 	else { // nothing left in composition buffer, terminate composition status
 		if(isComposing()) {
 			// clean composition before end it
 			setCompositionString(session, compositionBuf.c_str(), compositionBuf.length());
-
+			
+			
 			// We also need to make sure that the candidate window is not currently shown.
 			// When typing symbols with ` key, it's possible that the composition string empty,
 			// while the candidate window is shown. We should not terminate the composition in this case.
 			if(!showingCandidates())
 				endComposition(session->context());
 		}
+		 mode = noncomposition_mode; 
 	}
 
 	// update cursor pos
