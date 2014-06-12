@@ -1,7 +1,6 @@
 
 
 
-=======
 # windows-chewing-tsf
 
 Implement chewing in Windows via Text Services Framework:
