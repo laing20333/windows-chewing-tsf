@@ -83,4 +83,3 @@ All parts are licensed under GNU LGPL v2.1 license.
 
 # Bug Report
 Please report any issue to [here](https://github.com/chewing/windows-chewing-tsf/issues).
->>>>>>> 7ef42ce1a040201d7fc8ee2b992ebd398e2e041f
